@@ -11,46 +11,46 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 /**
- * Parser for React/TypeScript code from Claude responses
- * Supports TSX, JSX, and TypeScript files
+ * Enhanced Parser for React/TypeScript code from Claude responses
+ * Supports TSX, JSX, TS, and JS files including pure TypeScript types/interfaces
  */
 @Component
 public class ReactCodeParser implements CodeParser {
     
     private static final Logger logger = LoggerFactory.getLogger(ReactCodeParser.class);
     
-    // Pattern for React code blocks in markdown format
+    // Pattern for React/TS code blocks in markdown format
     private static final Pattern REACT_CODE_BLOCK_PATTERN = 
-        Pattern.compile("```(tsx?|jsx?)\\s*//\\s*([^\\n]+)\\s*\\n([\\s\\S]*?)```");
+        Pattern.compile("```(tsx?|jsx?|typescript|javascript)\\s*//\\s*([^\\n]+)\\s*\\n([\\s\\S]*?)```");
     
-    // Pattern for raw React code with path comments
+    // Pattern for raw React/TS code with path comments
     private static final Pattern RAW_REACT_PATTERN = 
-        Pattern.compile("//\\s*(src/[^\\r\\n]+\\.(tsx?|jsx?))\\s*[\\r\\n]+([\\s\\S]+?)(?=[\\r\\n]+//\\s*src/[^\\r\\n]+\\.(tsx?|jsx?)|\\Z)", Pattern.MULTILINE);
+        Pattern.compile("//\\s*(src/[^\\r\\n]+\\.(tsx?|jsx?|js))\\s*[\\r\\n]+([\\s\\S]+?)(?=[\\r\\n]+//\\s*src/[^\\r\\n]+\\.(tsx?|jsx?|js)|\\Z)", Pattern.MULTILINE);
     
-    // Pattern for single React file
+    // Pattern for single React/TS file
     private static final Pattern SINGLE_REACT_PATTERN = 
-        Pattern.compile("^\\s*//\\s*(src/[^\\r\\n]+\\.(tsx?|jsx?))\\s*[\\r\\n]+([\\s\\S]+)$", Pattern.MULTILINE);
+        Pattern.compile("^\\s*//\\s*(src/[^\\r\\n]+\\.(tsx?|jsx?|js))\\s*[\\r\\n]+([\\s\\S]+)$", Pattern.MULTILINE);
     
     @Override
     public List<ParsedFile> parse(String content) {
-        logger.debug("Parsing React code from content (length: {})", content.length());
+        logger.debug("Parsing React/TypeScript code from content (length: {})", content.length());
         
         List<ParsedFile> files = new ArrayList<>();
         
         // 1. Try parsing markdown code blocks first
         files.addAll(parseMarkdownCodeBlocks(content));
         
-        // 2. If no markdown blocks found, try raw React code
+        // 2. If no markdown blocks found, try raw code
         if (files.isEmpty()) {
-            files.addAll(parseRawReactCode(content));
+            files.addAll(parseRawCode(content));
         }
         
         // 3. If still no files, try single file detection
         if (files.isEmpty()) {
-            files.addAll(parseSingleReactFile(content));
+            files.addAll(parseSingleFile(content));
         }
         
-        logger.info("React parser found {} files", files.size());
+        logger.info("React/TypeScript parser found {} files", files.size());
         return files;
     }
     
@@ -64,15 +64,16 @@ public class ReactCodeParser implements CodeParser {
             String code = matcher.group(3).trim();
             
             ParsedFile file = createReactFile(filePath, code, fileExtension);
-            files.add(file);
-            
-            logger.debug("Found React markdown block: {} ({} chars)", filePath, code.length());
+            if (file != null) {
+                files.add(file);
+                logger.debug("Found React/TS markdown block: {} ({} chars)", filePath, code.length());
+            }
         }
         
         return files;
     }
     
-    private List<ParsedFile> parseRawReactCode(String content) {
+    private List<ParsedFile> parseRawCode(String content) {
         List<ParsedFile> files = new ArrayList<>();
         Matcher matcher = RAW_REACT_PATTERN.matcher(content);
         
@@ -82,15 +83,16 @@ public class ReactCodeParser implements CodeParser {
             String code = matcher.group(3).trim();
             
             ParsedFile file = createReactFile(filePath, code, fileExtension);
-            files.add(file);
-            
-            logger.debug("Found raw React file: {} ({} chars)", filePath, code.length());
+            if (file != null) {
+                files.add(file);
+                logger.debug("Found raw React/TS file: {} ({} chars)", filePath, code.length());
+            }
         }
         
         return files;
     }
     
-    private List<ParsedFile> parseSingleReactFile(String content) {
+    private List<ParsedFile> parseSingleFile(String content) {
         List<ParsedFile> files = new ArrayList<>();
         Matcher matcher = SINGLE_REACT_PATTERN.matcher(content.trim());
         
@@ -100,55 +102,95 @@ public class ReactCodeParser implements CodeParser {
             String code = matcher.group(3).trim();
             
             ParsedFile file = createReactFile(filePath, code, fileExtension);
-            files.add(file);
-            
-            logger.debug("Found single React file: {} ({} chars)", filePath, code.length());
+            if (file != null) {
+                files.add(file);
+                logger.debug("Found single React/TS file: {} ({} chars)", filePath, code.length());
+            }
         }
         
         return files;
     }
     
     private ParsedFile createReactFile(String filePath, String content, String extension) {
-        // Validate React content
-        if (!isValidReactContent(content)) {
-            return ParsedFile.invalid(filePath, "Invalid React content - missing import or export statements");
+        // Enhanced validation for React/TypeScript content
+        if (!isValidReactOrTypeScriptContent(content)) {
+            logger.warn("Invalid React/TypeScript content for file: {}", filePath);
+            return ParsedFile.invalid(filePath, "Invalid React/TypeScript content");
         }
         
         // Determine file type based on content and extension
-        String fileType = determineReactFileType(content, extension);
+        String fileType = determineFileType(content, extension);
         
-        return new ParsedFile(filePath, content, fileType, "React");
+        return new ParsedFile(filePath, content, fileType, "React/TypeScript");
     }
     
-    private boolean isValidReactContent(String content) {
-        // Basic validation for React files
-        return content.contains("import ") || 
-               content.contains("export ") || 
+    /**
+     * Enhanced validation that accepts both React components and pure TypeScript
+     */
+    private boolean isValidReactOrTypeScriptContent(String content) {
+        // Check for TypeScript/JavaScript keywords and patterns
+        return content.contains("export ") || 
+               content.contains("import ") || 
+               content.contains("interface ") ||
+               content.contains("type ") ||
+               content.contains("enum ") ||
                content.contains("function ") ||
                content.contains("const ") ||
+               content.contains("let ") ||
+               content.contains("var ") ||
+               content.contains("class ") ||
                content.contains("React") ||
                content.contains("jsx") ||
                content.contains("tsx") ||
-               content.contains("<") && content.contains(">");
+               (content.contains("<") && content.contains(">")) ||
+               content.trim().length() > 0; // Allow non-empty files
     }
     
-    private String determineReactFileType(String content, String extension) {
-        if (content.contains("export default") && content.contains("function")) {
-            return "Component";
-        } else if (content.contains("const") && content.contains("=") && content.contains("=>")) {
-            return "Component";
-        } else if (content.contains("interface ") || content.contains("type ")) {
-            return "Types";
+    /**
+     * Enhanced file type detection
+     */
+    private String determineFileType(String content, String extension) {
+        // Check for TypeScript-specific patterns first
+        if (content.contains("interface ") && content.contains("export interface")) {
+            return "TypeScript Interfaces";
+        } else if (content.contains("enum ") && content.contains("export enum")) {
+            return "TypeScript Enums";
+        } else if (content.contains("type ") && content.contains("export type")) {
+            return "TypeScript Types";
+        } else if (content.contains("export ") && (content.contains("interface ") || content.contains("type ") || content.contains("enum "))) {
+            return "TypeScript Definitions";
+        }
+        
+        // Check for React patterns
+        else if (content.contains("export default") && content.contains("function")) {
+            return "React Component";
+        } else if (content.contains("const") && content.contains("=") && content.contains("=>") && content.contains("jsx")) {
+            return "React Component";
         } else if (content.contains("useState") || content.contains("useEffect")) {
-            return "Hook";
+            return "React Hook";
         } else if (content.contains("api") || content.contains("fetch") || content.contains("axios")) {
-            return "Service";
+            return "API Service";
         } else if (content.contains("const") && content.contains("=") && !content.contains("=>")) {
             return "Constants";
-        } else if (extension != null && extension.contains("ts") && !extension.contains("tsx")) {
-            return "TypeScript";
         }
-        return "Component";
+        
+        // Fallback based on extension
+        else if (extension != null) {
+            switch (extension.toLowerCase()) {
+                case "ts":
+                    return "TypeScript";
+                case "tsx":
+                    return "React TSX Component";
+                case "jsx":
+                    return "React JSX Component";
+                case "js":
+                    return "JavaScript";
+                default:
+                    return "JavaScript/TypeScript";
+            }
+        }
+        
+        return "TypeScript/React";
     }
     
     @Override
@@ -158,19 +200,33 @@ public class ReactCodeParser implements CodeParser {
     
     @Override
     public String getParserType() {
-        return "React";
+        return "React/TypeScript";
     }
     
     @Override
     public boolean canHandle(String content) {
-        // Check if content contains React patterns
+        // Focus on React/JSX content, avoid pure TypeScript files
         return content.contains("```tsx") ||
                content.contains("```jsx") ||
-               content.contains("```ts") ||
-               content.contains("// src/") && (content.contains(".tsx") || content.contains(".jsx")) ||
+               // Check for React file paths only (.tsx, .jsx)
+               content.contains("// src/") && (
+                   content.contains(".tsx") || 
+                   content.contains(".jsx")
+               ) ||
+               // Check for React-specific patterns
                content.contains("import React") ||
-               content.contains("export default") ||
                content.contains("useState") ||
-               content.contains("useEffect");
+               content.contains("useEffect") ||
+               content.contains("useContext") ||
+               content.contains("useReducer") ||
+               content.contains("JSX.Element") ||
+               content.contains("React.FC") ||
+               content.contains("React.Component") ||
+               // React component patterns
+               (content.contains("export default") && 
+                (content.contains("function") || content.contains("const")) && 
+                (content.contains("<") && content.contains("/>"))) ||
+               // JSX syntax
+               (content.contains("return (") && content.contains("<") && content.contains("/>"));
     }
 }

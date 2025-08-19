@@ -22,9 +22,10 @@ public class CodeParseManager {
     
     public CodeParseManager(JavaCodeParser javaParser,
                            ReactCodeParser reactParser,
+                           TypeScriptCodeParser typeScriptParser,
                            CssCodeParser cssParser,
                            HtmlCodeParser htmlParser) {
-        this.parsers = List.of(javaParser, reactParser, cssParser, htmlParser);
+        this.parsers = List.of(javaParser, reactParser, typeScriptParser, cssParser, htmlParser);
         logger.info("Initialized CodeParseManager with {} parsers: {}", 
                    parsers.size(), 
                    parsers.stream().map(CodeParser::getParserType).collect(Collectors.joining(", ")));

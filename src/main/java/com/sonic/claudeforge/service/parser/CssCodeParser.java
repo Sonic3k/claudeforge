@@ -11,8 +11,8 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 /**
- * Parser for CSS code from Claude responses
- * Supports CSS, SCSS, and SASS files
+ * Enhanced Parser for CSS code from Claude responses
+ * Supports CSS, SCSS, and SASS files with both // and /*
  */
 @Component
 public class CssCodeParser implements CodeParser {
@@ -21,15 +21,15 @@ public class CssCodeParser implements CodeParser {
     
     // Pattern for CSS code blocks in markdown format
     private static final Pattern CSS_CODE_BLOCK_PATTERN = 
-        Pattern.compile("```(css|scss|sass)\\s*//\\s*([^\\n]+)\\s*\\n([\\s\\S]*?)```");
+        Pattern.compile("```(css|scss|sass)\\s*(?://\\s*|/\\*\\s*)([^\\n]+?)(?:\\s*\\*/)?\\s*\\n([\\s\\S]*?)```");
     
-    // Pattern for raw CSS code with path comments
+    // Pattern for raw CSS code with path comments (both // and /* */ style)
     private static final Pattern RAW_CSS_PATTERN = 
-        Pattern.compile("//\\s*([^\\r\\n]+\\.(css|scss|sass))\\s*[\\r\\n]+([\\s\\S]+?)(?=[\\r\\n]+//\\s*[^\\r\\n]+\\.(css|scss|sass)|\\Z)", Pattern.MULTILINE);
+        Pattern.compile("(?://\\s*|/\\*\\s*)([^\\r\\n]+\\.(css|scss|sass))(?:\\s*\\*/)?\\s*[\\r\\n]+([\\s\\S]+?)(?=[\\r\\n]+(?://\\s*|/\\*\\s*)[^\\r\\n]+\\.(css|scss|sass)|\\Z)", Pattern.MULTILINE);
     
-    // Pattern for single CSS file
+    // Pattern for single CSS file (both comment styles)
     private static final Pattern SINGLE_CSS_PATTERN = 
-        Pattern.compile("^\\s*//\\s*([^\\r\\n]+\\.(css|scss|sass))\\s*[\\r\\n]+([\\s\\S]+)$", Pattern.MULTILINE);
+        Pattern.compile("^\\s*(?://\\s*|/\\*\\s*)([^\\r\\n]+\\.(css|scss|sass))(?:\\s*\\*/)?\\s*[\\r\\n]+([\\s\\S]+)$", Pattern.MULTILINE);
     
     @Override
     public List<ParsedFile> parse(String content) {
@@ -64,9 +64,10 @@ public class CssCodeParser implements CodeParser {
             String code = matcher.group(3).trim();
             
             ParsedFile file = createCssFile(filePath, code, fileType);
-            files.add(file);
-            
-            logger.debug("Found CSS markdown block: {} ({} chars)", filePath, code.length());
+            if (file != null) {
+                files.add(file);
+                logger.debug("Found CSS markdown block: {} ({} chars)", filePath, code.length());
+            }
         }
         
         return files;
@@ -82,9 +83,10 @@ public class CssCodeParser implements CodeParser {
             String code = matcher.group(3).trim();
             
             ParsedFile file = createCssFile(filePath, code, fileExtension);
-            files.add(file);
-            
-            logger.debug("Found raw CSS file: {} ({} chars)", filePath, code.length());
+            if (file != null) {
+                files.add(file);
+                logger.debug("Found raw CSS file: {} ({} chars)", filePath, code.length());
+            }
         }
         
         return files;
@@ -100,17 +102,19 @@ public class CssCodeParser implements CodeParser {
             String code = matcher.group(3).trim();
             
             ParsedFile file = createCssFile(filePath, code, fileExtension);
-            files.add(file);
-            
-            logger.debug("Found single CSS file: {} ({} chars)", filePath, code.length());
+            if (file != null) {
+                files.add(file);
+                logger.debug("Found single CSS file: {} ({} chars)", filePath, code.length());
+            }
         }
         
         return files;
     }
     
     private ParsedFile createCssFile(String filePath, String content, String extension) {
-        // Validate CSS content
+        // Enhanced validation for CSS content
         if (!isValidCssContent(content)) {
+            logger.warn("Invalid CSS content for file: {}", filePath);
             return ParsedFile.invalid(filePath, "Invalid CSS content - no valid CSS rules found");
         }
         
@@ -121,14 +125,19 @@ public class CssCodeParser implements CodeParser {
     }
     
     private boolean isValidCssContent(String content) {
-        // Basic validation for CSS files
+        // Enhanced validation for CSS files including Tailwind
         return content.contains("{") && content.contains("}") ||
                content.contains(":") ||
                content.contains("@import") ||
                content.contains("@media") ||
                content.contains("@tailwind") ||
+               content.contains("@layer") ||
+               content.contains("@apply") ||
                content.contains("/*") ||
-               content.trim().length() > 0; // Allow empty CSS files
+               content.contains("//") ||
+               // CSS properties pattern
+               content.matches(".*[a-zA-Z-]+\\s*:\\s*[^;]+;.*") ||
+               content.trim().length() > 0; // Allow non-empty CSS files
     }
     
     private String determineCssFileType(String content, String extension) {
@@ -164,16 +173,25 @@ public class CssCodeParser implements CodeParser {
     
     @Override
     public boolean canHandle(String content) {
-        // Check if content contains CSS patterns
+        // Enhanced detection for CSS content with both comment styles
         return content.contains("```css") ||
                content.contains("```scss") ||
                content.contains("```sass") ||
-               content.contains(".css") ||
-               content.contains(".scss") ||
-               content.contains(".sass") ||
-               (content.contains("{") && content.contains("}")) ||
+               // Check for CSS file paths with both comment styles
+               (content.contains(".css") || content.contains(".scss") || content.contains(".sass")) &&
+               (content.contains("// ") || content.contains("/* ")) ||
+               // Check for CSS-specific patterns
                content.contains("@tailwind") ||
+               content.contains("@layer") ||
+               content.contains("@apply") ||
                content.contains("@import") ||
-               content.contains("@media");
+               content.contains("@media") ||
+               // CSS specific syntax
+               (content.contains("{") && content.contains("}") && content.contains(":")) ||
+               // Tailwind CSS utilities
+               content.contains("bg-") || content.contains("text-") || content.contains("p-") ||
+               // SCSS/SASS syntax
+               content.contains("$") && content.contains(":") ||
+               content.contains("&") && content.contains("{");
     }
 }

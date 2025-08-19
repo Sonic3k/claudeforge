@@ -1,18 +1,26 @@
 // src/main/java/com/sonic/claudeforge/controller/CodeGenController.java
 package com.sonic.claudeforge.controller;
 
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.CrossOrigin;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RestController;
+
 import com.sonic.claudeforge.model.GeneratedCode;
 import com.sonic.claudeforge.service.CodeGeneratorService;
 import com.sonic.claudeforge.service.parser.CodeParseManager;
 import com.sonic.claudeforge.service.parser.ParseResult;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-import org.springframework.http.ResponseEntity;
-import org.springframework.web.bind.annotation.*;
-
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
 
 /**
  * Enhanced Code Generation Controller with modular parser support
@@ -50,6 +58,73 @@ public class CodeGenController {
     }
     
     /**
+     * NEW: Debug parser conflicts and priorities
+     */
+    @PostMapping("/debug-parsers")
+    public ResponseEntity<Map<String, Object>> debugParsers(@RequestBody Map<String, String> request) {
+        String content = request.get("content");
+        
+        logger.info("Debugging parser conflicts for content (length: {})", content.length());
+        
+        List<CodeParseManager.ParserInfo> allParsers = codeGeneratorService.getAvailableParsers();
+        List<String> applicableParsers = codeGeneratorService.detectApplicableParsers(content);
+        
+        Map<String, Object> response = new HashMap<>();
+        response.put("success", true);
+        response.put("message", "Parser debug completed");
+        response.put("contentLength", content.length());
+        response.put("contentPreview", content.length() > 150 ? content.substring(0, 150) + "..." : content);
+        
+        response.put("allParsers", allParsers);
+        response.put("applicableParsers", applicableParsers);
+        response.put("totalApplicableParsers", applicableParsers.size());
+        
+        // Test each parser individually
+        Map<String, Object> parserResults = new HashMap<>();
+        
+        for (CodeParseManager.ParserInfo parserInfo : allParsers) {
+            String parserType = parserInfo.getType();
+            try {
+                GeneratedCode result = codeGeneratorService.parseAndGenerateCodeWithParser(
+                    content, "/tmp/test", parserType, false);  // Don't write files for debug
+                
+                Map<String, Object> parserResult = new HashMap<>();
+                parserResult.put("filesFound", result.getFiles().size());
+                parserResult.put("canHandle", applicableParsers.contains(parserType));
+                
+                if (!result.getFiles().isEmpty()) {
+                    parserResult.put("fileTypes", result.getFiles().stream()
+                        .map(f -> f.getFileType()).distinct().toList());
+                    parserResult.put("filePaths", result.getFiles().stream()
+                        .map(f -> f.getFilePath()).toList());
+                }
+                
+                parserResults.put(parserType, parserResult);
+                
+            } catch (Exception e) {
+                Map<String, Object> errorResult = new HashMap<>();
+                errorResult.put("error", e.getMessage());
+                errorResult.put("canHandle", applicableParsers.contains(parserType));
+                parserResults.put(parserType, errorResult);
+            }
+        }
+        
+        response.put("parserResults", parserResults);
+        
+        // Detect potential conflicts
+        List<String> conflicts = new ArrayList<>();
+        if (applicableParsers.size() > 1) {
+            conflicts.add("Multiple parsers can handle this content: " + String.join(", ", applicableParsers));
+        }
+        
+        response.put("conflicts", conflicts);
+        response.put("hasConflicts", !conflicts.isEmpty());
+        
+        return ResponseEntity.ok(response);
+    }
+    
+    
+    /**
      * NEW: Parse with specific parser type
      */
     @PostMapping("/parse-with-parser")
@@ -60,7 +135,7 @@ public class CodeGenController {
         
         logger.info("Parsing Claude response with {} parser at: {}", parserType, workspacePath);
         
-        GeneratedCode generatedCode = codeGeneratorService.parseAndGenerateCodeWithParser(claudeResponse, workspacePath, parserType);
+        GeneratedCode generatedCode = codeGeneratorService.parseAndGenerateCodeWithParser(claudeResponse, workspacePath, parserType, true);
         
         Map<String, Object> response = new HashMap<>();
         response.put("success", true);
@@ -145,6 +220,59 @@ public class CodeGenController {
         response.put("message", "Parser detection completed");
         response.put("applicableParsers", applicableParsers);
         response.put("totalApplicableParsers", applicableParsers.size());
+        
+        return ResponseEntity.ok(response);
+    }
+    
+    /**
+     * NEW: Test parsing with debug information
+     */
+    @PostMapping("/test-parse")
+    public ResponseEntity<Map<String, Object>> testParsing(@RequestBody Map<String, String> request) {
+        String content = request.get("content");
+        
+        logger.info("Testing parsing for content (length: {})", content.length());
+        
+        ParseResult parseResult = codeGeneratorService.previewParsing(content);
+        
+        // Get detailed parser information
+        List<String> applicableParsers = codeGeneratorService.detectApplicableParsers(content);
+        List<CodeParseManager.ParserInfo> allParsers = codeGeneratorService.getAvailableParsers();
+        
+        Map<String, Object> response = new HashMap<>();
+        response.put("success", true);
+        response.put("message", "Test parsing completed");
+        response.put("contentLength", content.length());
+        response.put("contentPreview", content.length() > 200 ? content.substring(0, 200) + "..." : content);
+        
+        response.put("applicableParsers", applicableParsers);
+        response.put("allParsers", allParsers);
+        response.put("totalFiles", parseResult.getAllFiles().size());
+        response.put("validFiles", parseResult.getTotalValidFiles());
+        response.put("invalidFiles", parseResult.getTotalInvalidFiles());
+        response.put("parsersUsed", parseResult.getSuccessfulParsers());
+        response.put("errors", parseResult.getErrors());
+        response.put("summary", parseResult.getSummary());
+        
+        // Detailed file information
+        List<Map<String, Object>> fileDetails = parseResult.getAllFiles().stream()
+                .map(file -> {
+                    Map<String, Object> fileInfo = new HashMap<>();
+                    fileInfo.put("fileName", file.getFileName());
+                    fileInfo.put("filePath", file.getFilePath());
+                    fileInfo.put("fileType", file.getFileType());
+                    fileInfo.put("parserType", file.getParserType());
+                    fileInfo.put("valid", file.isValid());
+                    fileInfo.put("errorMessage", file.getErrorMessage());
+                    fileInfo.put("contentLength", file.getContent() != null ? file.getContent().length() : 0);
+                    fileInfo.put("contentPreview", file.getContent() != null && file.getContent().length() > 100 
+                        ? file.getContent().substring(0, 100) + "..." 
+                        : file.getContent());
+                    return fileInfo;
+                })
+                .toList();
+        
+        response.put("fileDetails", fileDetails);
         
         return ResponseEntity.ok(response);
     }

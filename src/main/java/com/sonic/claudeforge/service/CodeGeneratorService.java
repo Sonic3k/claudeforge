@@ -157,10 +157,17 @@ public class CodeGeneratorService {
     }
     
     /**
-     * NEW: Parse and generate with specific parser
+     * NEW: Parse and generate with specific parser (with option to skip file writing)
      */
     public GeneratedCode parseAndGenerateCodeWithParser(String claudeResponse, String workspacePath, String parserType) {
-        logger.info("Parsing Claude response with specific parser: {}", parserType);
+        return parseAndGenerateCodeWithParser(claudeResponse, workspacePath, parserType, true);
+    }
+    
+    /**
+     * NEW: Parse and generate with specific parser with write control
+     */
+    public GeneratedCode parseAndGenerateCodeWithParser(String claudeResponse, String workspacePath, String parserType, boolean writeFiles) {
+        logger.info("Parsing Claude response with specific parser: {} (write files: {})", parserType, writeFiles);
         
         GeneratedCode generatedCode = new GeneratedCode();
         generatedCode.setWorkspacePath(workspacePath);
@@ -170,7 +177,7 @@ public class CodeGeneratorService {
         // Use specific parser
         ParseResult parseResult = codeParseManager.parseWithSpecificParser(claudeResponse, parserType);
         
-        // Convert and write files
+        // Convert and optionally write files
         List<GeneratedCode.GeneratedFile> generatedFiles = new ArrayList<>();
         
         for (ParsedFile parsedFile : parseResult.getValidFiles()) {
@@ -181,7 +188,10 @@ public class CodeGeneratorService {
             generatedFile.setFileType(parsedFile.getFileType() + " (" + parsedFile.getParserType() + ")");
             
             generatedFiles.add(generatedFile);
-            writeGeneratedFile(workspacePath, parsedFile.getFilePath(), parsedFile.getContent());
+            
+            if (writeFiles && !workspacePath.equals("/tmp/test")) {
+                writeGeneratedFile(workspacePath, parsedFile.getFilePath(), parsedFile.getContent());
+            }
         }
         
         generatedCode.setFiles(generatedFiles);
