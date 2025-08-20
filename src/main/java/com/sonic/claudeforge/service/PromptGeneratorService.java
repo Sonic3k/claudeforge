@@ -53,7 +53,6 @@ public class PromptGeneratorService {
             prompt.append("- Use RELATIVE paths from project root (e.g., src/main/java/...)\n");
             prompt.append("- Add file path comments at the top of each file\n");
             prompt.append("- For Model/DTO/Entity classes: NO custom constructors, only default constructor\n");
-            prompt.append("- For Model/DTO/Entity classes: add @GENERATE_GETTERS_SETTERS comment instead of actual getters/setters\n");
             prompt.append("- Controllers must have JavaDoc documentation\n");
             prompt.append("- Use @RequestParam(name=\"paramName\", required=true) for Spring Boot 3.3.12 compatibility\n");
             prompt.append("- GlobalExceptionHandler with @RestControllerAdvice is already generated\n");
